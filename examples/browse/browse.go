@@ -111,6 +111,8 @@ func browse(n *opcua.Node, path string, level int) ([]NodeDef, error) {
 			def.DataType = "UtcTime"
 		case id.String:
 			def.DataType = "String"
+		case id.Float:
+			def.DataType = "Float"
 		default:
 			def.DataType = attrs[4].Value.NodeID().String()
 		}
