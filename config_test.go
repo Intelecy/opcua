@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"io/ioutil"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,10 +18,10 @@ import (
 )
 
 const (
-	certDERFile = "/tmp/gopcua-test-cert.der"
-	certPEMFile = "/tmp/gopcua-test-cert.pem"
-	keyDERFile  = "/tmp/gopcua-test-key.der"
-	keyPEMFile  = "/tmp/gopcua-test-key.pem"
+	certDERPattern = "gopcua-*-test-cert.der"
+	certPEMPattern = "gopcua-*-test-cert.pem"
+	keyDERPattern  = "gopcua-*-test-key.der"
+	keyPEMPattern  = "gopcua-*-test-key.pem"
 )
 
 // test certificate generated with
@@ -128,20 +129,43 @@ func x509Cert(c, k []byte) tls.Certificate {
 	return cert
 }
 
+func createFile(namePattern string, content []byte, mode os.FileMode) (filename string, err error) {
+	tmpfile, err := ioutil.TempFile("", namePattern)
+	if err != nil {
+		return "", err
+	}
+	defer tmpfile.Close()
+	if runtime.GOOS != "windows" {
+		if err := tmpfile.Chmod(mode); err != nil {
+			return "", err
+		}
+	}
+	if _, err := tmpfile.Write(content); err != nil {
+		return "", err
+	}
+	
+	return tmpfile.Name(), nil
+}
+
 func TestOptions(t *testing.T) {
-	if err := ioutil.WriteFile(certDERFile, certDER, 0644); err != nil {
+	
+	certDERFile, err := createFile(certDERPattern, certDER, 0644)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(certDERFile)
-	if err := ioutil.WriteFile(certPEMFile, certPEM, 0644); err != nil {
+	certPEMFile, err := createFile(certPEMPattern, certPEM, 0644)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(certPEMFile)
-	if err := ioutil.WriteFile(keyDERFile, keyDER, 0644); err != nil {
+	keyDERFile, err := createFile(keyDERPattern, keyDER, 0644)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(keyDERFile)
-	if err := ioutil.WriteFile(keyPEMFile, keyPEM, 0644); err != nil {
+	keyPEMFile, err := createFile(keyPEMPattern, keyPEM, 0644)
+	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(keyPEMFile)
