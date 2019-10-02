@@ -65,7 +65,7 @@ func (s *Server) Run() error {
 	}
 
 	// wait until endpoint is available
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		c, err := net.Dial("tcp", "127.0.0.1:4840")
 		if err != nil {
@@ -75,6 +75,9 @@ func (s *Server) Run() error {
 		c.Close()
 		return nil
 	}
+	b, err := s.cmd.CombinedOutput()
+	fmt.Printf("err: %s\noutput:\n%s\n", err, b)
+
 	return fmt.Errorf("timeout")
 }
 
