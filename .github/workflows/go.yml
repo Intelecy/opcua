@@ -2,8 +2,8 @@ name: Go
 on: [push]
 jobs:
 
-  build:
-    name: Build
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
 
@@ -21,4 +21,4 @@ jobs:
         go mod download
 
     - name: Test
-      run: make test
+      run: make test integration
