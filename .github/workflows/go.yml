@@ -2,14 +2,18 @@ name: OPCUA
 on: [push]
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go: ["1.13"]
 
-    - name: Set up Go 1.13
+    steps:
+    - name: Set up Go ${{ matrix.go }}
       uses: actions/setup-go@v1
       with:
-        go-version: 1.13
+        go-version: ${{ matrix.go }}
       id: go
 
     - name: Setup Python 
@@ -26,5 +30,5 @@ jobs:
         go mod download
         make install-py-opcua
 
-    - name: Test
+    - name: Run Tests
       run: make test integration
