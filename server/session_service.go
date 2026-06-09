@@ -53,6 +53,14 @@ func (s *SessionService) CreateSession(sc *uasc.SecureChannel, r ua.Request, req
 	sess.serverNonce = nonce
 	sess.remoteCertificate = req.ClientCertificate
 
+	s.srv.sb.Update(sess.AuthTokenID, func(sess *session) {
+		sess.endpointURL = req.EndpointURL
+		sess.clientDescription = req.ClientDescription
+		if addr := sc.RemoteAddr(); addr != nil {
+			sess.remoteAddr = addr.String()
+		}
+	})
+
 	sig, alg, err := sc.NewSessionSignature(req.ClientCertificate, req.ClientNonce)
 	if err != nil {
 		log.Printf("error creating session signature")
@@ -111,12 +119,39 @@ func (s *SessionService) ActivateSession(sc *uasc.SecureChannel, r ua.Request, r
 		return nil, ua.StatusBadSecurityChecksFailed
 	}
 
+	var auth *AuthenticationRequest
+
+	if s.srv.cfg.authenticator != nil {
+		auth, err = buildAuthenticationRequest(sc, sess, req)
+		if err != nil {
+			if code, ok := err.(ua.StatusCode); ok {
+				return nil, code
+			}
+			return nil, ua.StatusBadIdentityTokenInvalid
+		}
+
+		if err := s.srv.cfg.authenticator(auth); err != nil {
+			if s.srv.cfg.logger != nil {
+				s.srv.cfg.logger.Warn("session activation rejected: %s", err)
+			}
+			if code, ok := err.(ua.StatusCode); ok {
+				return nil, code
+			}
+			return nil, ua.StatusBadUserAccessDenied
+		}
+	}
+
 	nonce := make([]byte, sessionNonceLength)
 	if _, err := rand.Read(nonce); err != nil {
 		log.Printf("error creating session nonce")
 		return nil, ua.StatusBadInternalError
 	}
 	sess.serverNonce = nonce
+
+	s.srv.sb.Update(sess.AuthTokenID, func(sess *session) {
+		sess.activated = true
+		sess.auth = auth
+	})
 
 	response := &ua.ActivateSessionResponse{
 		ResponseHeader: responseHeader(req.RequestHeader.RequestHandle, ua.StatusOK),

@@ -159,3 +159,10 @@ func (c *channelBroker) ReadMessage(ctx context.Context) *uasc.MessageBody {
 		return msg
 	}
 }
+
+// Count returns the number of currently registered secure channels.
+func (c *channelBroker) Count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.s)
+}

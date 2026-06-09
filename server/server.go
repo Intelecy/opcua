@@ -67,6 +67,8 @@ type serverConfig struct {
 	enabledSec  []security
 	enabledAuth []authMode
 
+	authenticator Authenticator
+
 	cap ServerCapabilities
 
 	logger Logger
@@ -130,7 +132,7 @@ func New(opts ...Option) *Server {
 				ProductURI:       "https://github.com/gopcua/opcua",
 				ManufacturerName: cfg.manufacturerName,
 				ProductName:      cfg.productName,
-				SoftwareVersion:  "0.0.0-dev",
+				SoftwareVersion:  cfg.softwareVersion,
 				BuildNumber:      "",
 				BuildDate:        time.Time{},
 			},
@@ -219,6 +221,16 @@ func (s *Server) Endpoints() []*ua.EndpointDescription {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.endpoints)
+}
+
+// Sessions returns a snapshot of all current sessions.
+func (s *Server) Sessions() []SessionInfo {
+	return s.sb.SessionInfos()
+}
+
+// SecureChannelCount returns the number of currently open secure channels.
+func (s *Server) SecureChannelCount() int {
+	return s.cb.Count()
 }
 
 // Status returns the current server status.

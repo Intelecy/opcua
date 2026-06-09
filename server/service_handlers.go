@@ -111,7 +111,9 @@ func (s *Server) handleService(ctx context.Context, sc *uasc.SecureChannel, reqI
 	typeID := ua.ServiceTypeID(req)
 	h, ok := s.handlers[typeID]
 	if ok {
-		resp, err = h(sc, req, reqID)
+		if err = s.checkSession(typeID, req); err == nil {
+			resp, err = h(sc, req, reqID)
+		}
 	} else {
 		if typeID == 0 {
 			if s.cfg.logger != nil {
@@ -139,6 +141,53 @@ func (s *Server) handleService(ctx context.Context, sc *uasc.SecureChannel, reqI
 			s.cfg.logger.Warn("Error sending response: %s\n", err)
 		}
 	}
+}
+
+// sessionlessServices are the services that may be called without an
+// activated session: discovery and session management.
+var sessionlessServices = map[uint16]struct{}{
+	id.FindServersRequest_Encoding_DefaultBinary:          {},
+	id.FindServersOnNetworkRequest_Encoding_DefaultBinary: {},
+	id.GetEndpointsRequest_Encoding_DefaultBinary:         {},
+	id.RegisterServerRequest_Encoding_DefaultBinary:       {},
+	id.RegisterServer2Request_Encoding_DefaultBinary:      {},
+	id.CreateSessionRequest_Encoding_DefaultBinary:        {},
+	id.ActivateSessionRequest_Encoding_DefaultBinary:      {},
+	id.CloseSessionRequest_Encoding_DefaultBinary:         {},
+	id.CancelRequest_Encoding_DefaultBinary:               {},
+}
+
+// checkSession rejects service requests on missing or non-activated sessions.
+// It only enforces when an Authenticator is configured to preserve upstream
+// behavior otherwise.
+func (s *Server) checkSession(typeID uint16, req ua.Request) error {
+	if s.cfg.authenticator == nil {
+		return nil
+	}
+
+	if _, ok := sessionlessServices[typeID]; ok {
+		return nil
+	}
+
+	hdr := req.Header()
+	if hdr == nil || hdr.AuthenticationToken == nil {
+		return ua.StatusBadSessionIDInvalid
+	}
+
+	sess := s.sb.Session(hdr.AuthenticationToken)
+	if sess == nil {
+		return ua.StatusBadSessionIDInvalid
+	}
+
+	var activated bool
+	s.sb.Update(hdr.AuthenticationToken, func(sess *session) {
+		activated = sess.activated
+	})
+	if !activated {
+		return ua.StatusBadSessionNotActivated
+	}
+
+	return nil
 }
 
 func responseHeader(reqID uint32, statusCode ua.StatusCode) *ua.ResponseHeader {
