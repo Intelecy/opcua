@@ -127,7 +127,15 @@ func buildAuthenticationRequest(sc *uasc.SecureChannel, sess *session, req *ua.A
 		areq.UserName = tok.UserName
 
 		if tok.EncryptionAlgorithm == "" {
-			// password was sent in plaintext (SecurityPolicy#None)
+			// An unencrypted password is only acceptable when the effective
+			// user-token security policy is explicitly None. Otherwise the
+			// password MUST be encrypted (OPC-UA Part 4); trusting cleartext
+			// here would let a client downgrade and submit a password that
+			// should have required encryption. Default-deny: an unknown /
+			// missing PolicyID does not resolve to None and is rejected.
+			if userTokenSecurityPolicyURI(tok.PolicyID) != ua.SecurityPolicyURINone {
+				return nil, ua.StatusBadIdentityTokenInvalid
+			}
 			areq.Password = tok.Password
 			return areq, nil
 		}

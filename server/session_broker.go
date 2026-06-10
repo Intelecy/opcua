@@ -27,6 +27,7 @@ type session struct {
 	clientDescription *ua.ApplicationDescription
 	activated         bool
 	auth              *AuthenticationRequest
+	scID              uint32 // secure channel this session was created on
 
 	PublishRequests chan PubReq
 }
@@ -126,6 +127,21 @@ func (sb *sessionBroker) Session(authToken *ua.NodeID) *session {
 	}
 
 	return s
+}
+
+// check looks up the session for authToken and returns the secure channel it
+// is bound to and whether it has been activated. ok is false if no such session
+// exists. Unlike Session() it does not log on a miss, so it is safe to call on
+// the per-request enforcement path (a flood of bogus tokens can't spam logs).
+func (sb *sessionBroker) check(authToken *ua.NodeID) (scID uint32, activated, ok bool) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	s := sb.s[authToken.String()]
+	if s == nil {
+		return 0, false, false
+	}
+	return s.scID, s.activated, true
 }
 
 // Update applies fn to the session identified by authToken while holding the

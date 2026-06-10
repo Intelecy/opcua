@@ -56,6 +56,7 @@ func (s *SessionService) CreateSession(sc *uasc.SecureChannel, r ua.Request, req
 	s.srv.sb.Update(sess.AuthTokenID, func(sess *session) {
 		sess.endpointURL = req.EndpointURL
 		sess.clientDescription = req.ClientDescription
+		sess.scID = sc.SecureChannelID() // bind the session to this secure channel
 		if addr := sc.RemoteAddr(); addr != nil {
 			sess.remoteAddr = addr.String()
 		}

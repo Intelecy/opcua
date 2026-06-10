@@ -244,6 +244,18 @@ func (s *SecureChannel) RemoteAddr() net.Addr {
 	return s.c.TCPConn.RemoteAddr()
 }
 
+// SecureChannelID returns the ID of the channel's active instance, or 0 if the
+// channel is not open. Servers use this to bind a session to the secure
+// channel it was created on.
+func (s *SecureChannel) SecureChannelID() uint32 {
+	s.instancesMu.Lock()
+	defer s.instancesMu.Unlock()
+	if s.activeInstance == nil {
+		return 0
+	}
+	return s.activeInstance.secureChannelID
+}
+
 func (s *SecureChannel) getActiveChannelInstance() (*channelInstance, error) {
 	s.instancesMu.Lock()
 	defer s.instancesMu.Unlock()

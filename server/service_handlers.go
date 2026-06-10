@@ -111,7 +111,7 @@ func (s *Server) handleService(ctx context.Context, sc *uasc.SecureChannel, reqI
 	typeID := ua.ServiceTypeID(req)
 	h, ok := s.handlers[typeID]
 	if ok {
-		if err = s.checkSession(typeID, req); err == nil {
+		if err = s.checkSession(sc.SecureChannelID(), typeID, req); err == nil {
 			resp, err = h(sc, req, reqID)
 		}
 	} else {
@@ -157,10 +157,16 @@ var sessionlessServices = map[uint16]struct{}{
 	id.CancelRequest_Encoding_DefaultBinary:               {},
 }
 
-// checkSession rejects service requests on missing or non-activated sessions.
-// It only enforces when an Authenticator is configured to preserve upstream
-// behavior otherwise.
-func (s *Server) checkSession(typeID uint16, req ua.Request) error {
+// checkSession rejects service requests on missing, non-activated, or
+// wrong-channel sessions. It only enforces when an Authenticator is configured,
+// to preserve upstream behavior otherwise.
+//
+// scID is the secure channel the request arrived on. The session is bound to
+// the channel it was created on (see CreateSession); a request carrying a valid
+// AuthenticationToken but arriving on a different channel is rejected. Without
+// this binding the token — a non-secret 31-bit value sent in the CreateSession
+// response — could be replayed from any channel to bypass the gate.
+func (s *Server) checkSession(scID uint32, typeID uint16, req ua.Request) error {
 	if s.cfg.authenticator == nil {
 		return nil
 	}
@@ -174,15 +180,15 @@ func (s *Server) checkSession(typeID uint16, req ua.Request) error {
 		return ua.StatusBadSessionIDInvalid
 	}
 
-	sess := s.sb.Session(hdr.AuthenticationToken)
-	if sess == nil {
+	sessChannel, activated, ok := s.sb.check(hdr.AuthenticationToken)
+	if !ok {
 		return ua.StatusBadSessionIDInvalid
 	}
 
-	var activated bool
-	s.sb.Update(hdr.AuthenticationToken, func(sess *session) {
-		activated = sess.activated
-	})
+	if scID == 0 || scID != sessChannel {
+		return ua.StatusBadSecureChannelIDInvalid
+	}
+
 	if !activated {
 		return ua.StatusBadSessionNotActivated
 	}
