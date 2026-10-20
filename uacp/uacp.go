@@ -166,6 +166,9 @@ func (e *Error) Encode() ([]byte, error) {
 }
 
 func (e *Error) Error() string {
+	if e.Reason != "" {
+		return ua.StatusCode(e.ErrorCode).Error() + ": " + e.Reason
+	}
 	return ua.StatusCode(e.ErrorCode).Error()
 }
 

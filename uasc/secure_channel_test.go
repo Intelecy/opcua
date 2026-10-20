@@ -890,3 +890,59 @@ func newTestTCPConnPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
 
 	return nil, nil
 }
+
+// A server that rejects the OpenSecureChannel request sends an ERR message. Open must return that error (with the
+// reason) instead of io.EOF, and must not wait for the request timeout when the server keeps the socket open.
+func TestOpenReturnsServerError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ln, err := uacp.Listen(ctx, "opc.tcp://127.0.0.1:0", nil)
+	require.NoError(t, err)
+	defer ln.Close()
+
+	serverDone := make(chan struct{})
+	defer close(serverDone)
+
+	go func() {
+		c, err := ln.Accept(ctx)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+
+		// read the OpenSecureChannel request, answer with ERR and keep the connection open
+		if _, err := c.Receive(); err != nil {
+			return
+		}
+		_ = c.Send("ERRF", &uacp.Error{
+			ErrorCode: uint32(ua.StatusBadSecurityChecksFailed),
+			Reason:    "Could not verify security on OpenSecureChannel request.",
+		})
+		<-serverDone
+	}()
+
+	endpoint := "opc.tcp://" + ln.Addr().String()
+	conn, err := uacp.Dial(ctx, endpoint)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	cfg := &Config{
+		SecurityPolicyURI: ua.SecurityPolicyURINone,
+		SecurityMode:      ua.MessageSecurityModeNone,
+		Lifetime:          uint32(time.Hour / time.Millisecond),
+		RequestTimeout:    5 * time.Second,
+	}
+	sc, err := NewSecureChannel(endpoint, conn, cfg, make(chan error, 1))
+	require.NoError(t, err)
+
+	start := time.Now()
+	err = sc.Open(ctx)
+
+	var uacperr *uacp.Error
+	require.ErrorAs(t, err, &uacperr)
+	require.Equal(t, uint32(ua.StatusBadSecurityChecksFailed), uacperr.ErrorCode)
+	require.ErrorContains(t, err, "StatusBadSecurityChecksFailed")
+	require.ErrorContains(t, err, "Could not verify security on OpenSecureChannel request.")
+	require.Less(t, time.Since(start), cfg.RequestTimeout, "Open waited for the request timeout")
+}

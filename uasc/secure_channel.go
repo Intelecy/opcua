@@ -148,6 +148,11 @@ type SecureChannel struct {
 	// errorCh receive dispatcher errors
 	errch chan<- error
 
+	// lastErr is the ERR message from the server that ended the connection, if any. Requests that are pending
+	// when the channel disconnects return it instead of io.EOF.
+	lastErrMu sync.Mutex
+	lastErr   error
+
 	// required for the server channel
 
 	// // secureChannelID is a unique identifier for the SecureChannel assigned by the Server.
@@ -278,6 +283,14 @@ func (s *SecureChannel) dispatcher() {
 			}
 
 			if msg.Err == io.EOF {
+				return
+			}
+
+			// an ERR message ends the connection (OPC UA Part 6). The server may not close the socket right away,
+			// so stop here and let pending requests fail with the error instead of waiting for their timeout.
+			var uacperr *uacp.Error
+			if errors.As(msg.Err, &uacperr) {
+				s.setLastErr(msg.Err)
 				return
 			}
 
@@ -437,13 +450,13 @@ func (s *SecureChannel) Receive(ctx context.Context) *MessageBody {
 func (s *SecureChannel) readChunk() (*MessageChunk, error) {
 	// read a full message from the underlying conn.
 	b, err := s.c.Receive()
-	if err == io.EOF || len(b) == 0 {
-		return nil, io.EOF
-	}
-	// do not wrap this error since it hides conn error
+	// do not wrap this error since it hides conn error. Check it before len(b): an ERR message has no data.
 	var uacperr *uacp.Error
 	if errors.As(err, &uacperr) {
 		return nil, err
+	}
+	if err == io.EOF || len(b) == 0 {
+		return nil, io.EOF
 	}
 	if err != nil {
 		return nil, errors.Errorf("sechan: read header failed: %s %#v", err, err)
@@ -936,6 +949,9 @@ func (s *SecureChannel) sendRequestWithTimeout(
 		return ctx.Err()
 	case <-s.disconnected:
 		s.popHandler(reqID)
+		if err := s.getLastErr(); err != nil {
+			return err
+		}
 		return io.EOF
 	case msg := <-ch:
 		if msg.Err != nil {
@@ -1242,4 +1258,16 @@ func mergeChunks(chunks []*MessageChunk) ([]byte, error) {
 		b = append(b, c.Data...)
 	}
 	return b, nil
+}
+
+func (s *SecureChannel) setLastErr(err error) {
+	s.lastErrMu.Lock()
+	defer s.lastErrMu.Unlock()
+	s.lastErr = err
+}
+
+func (s *SecureChannel) getLastErr() error {
+	s.lastErrMu.Lock()
+	defer s.lastErrMu.Unlock()
+	return s.lastErr
 }
